@@ -1,0 +1,45 @@
+name: STC preservation snapshot
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  preserve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Capture and verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq git-lfs jq zip
+          mkdir -p capture
+          cd capture
+          SOURCE="https://github.com/JoasASantos/REA-Prompts.git"
+          git clone --mirror "$SOURCE" REA-Prompts.git
+          git -C REA-Prompts.git fsck --full --no-reflogs
+          git -C REA-Prompts.git bundle create ../REA-Prompts.bundle --all
+          git bundle verify ../REA-Prompts.bundle
+          git clone "$SOURCE" source
+          git -C source submodule update --init --recursive
+          git -C source lfs fetch --all || echo "WARNING: LFS fetch incomplete" > LFS-WARNING.txt
+          git -C source lfs ls-files -l > lfs-inventory.txt
+          git -C source submodule status --recursive > submodules.txt
+          git -C REA-Prompts.git show-ref > refs.txt
+          gh api --paginate repos/JoasASantos/REA-Prompts/releases > releases.jsonl || echo "WARNING: releases API unavailable" > RELEASES-WARNING.txt
+          mkdir -p release-assets
+          gh release list --repo JoasASantos/REA-Prompts --limit 1000 --json tagName --jq '.[].tagName' | while IFS= read -r tag; do
+            mkdir -p "release-assets/$tag"
+            gh release download "$tag" --repo JoasASantos/REA-Prompts --dir "release-assets/$tag" || echo "WARNING: assets incomplete for $tag" >> RELEASES-WARNING.txt
+          done
+          printf '%s\n' 'id: stc:github:JoasASantos:REA-Prompts' 'source: https://github.com/JoasASantos/REA-Prompts' 'type: source-code' 'tags: [github, repository, prompts, ai, archival]' 'relation: forked-by Yverr0y/REA-Prompts' > relationships.yaml
+          printf 'source=%s\ncaptured_utc=%s\nworkflow_run=%s\n' "$SOURCE" "$(date -u +%FT%TZ)" "$GITHUB_RUN_ID" > provenance.txt
+          zip -qr ../REA-Prompts-source-and-assets.zip source release-assets *.txt *.yaml *.jsonl 2>/dev/null || true
+          cd ..
+          sha256sum REA-Prompts.bundle REA-Prompts-source-and-assets.zip > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          TAG="stc-rea-$(date -u +%Y%m%d)-$GITHUB_RUN_ID"
+          gh release create "$TAG" REA-Prompts.bundle REA-Prompts-source-and-assets.zip SHA256SUMS --repo "$GITHUB_REPOSITORY" --title "STC REA-Prompts preservation $TAG" --notes "Snapshot from JoasASantos/REA-Prompts. Review warnings and manifests inside ZIP. Git bundle contains all fetched refs." 

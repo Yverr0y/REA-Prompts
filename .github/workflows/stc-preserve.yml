@@ -39,6 +39,7 @@ jobs:
           printf 'source=%s\ncaptured_utc=%s\nworkflow_run=%s\n' "$SOURCE" "$(date -u +%FT%TZ)" "$GITHUB_RUN_ID" > provenance.txt
           zip -qr ../REA-Prompts-source-and-assets.zip source release-assets *.txt *.yaml *.jsonl 2>/dev/null || true
           cd ..
+          mv capture/REA-Prompts.bundle ./REA-Prompts.bundle
           sha256sum REA-Prompts.bundle REA-Prompts-source-and-assets.zip > SHA256SUMS
           sha256sum -c SHA256SUMS
           TAG="stc-rea-$(date -u +%Y%m%d)-$GITHUB_RUN_ID"

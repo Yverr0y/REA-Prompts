@@ -22,7 +22,7 @@ jobs:
           git clone --mirror "$SOURCE" REA-Prompts.git
           git -C REA-Prompts.git fsck --full --no-reflogs
           git -C REA-Prompts.git bundle create ../REA-Prompts.bundle --all
-          git bundle verify ../REA-Prompts.bundle
+          git -C REA-Prompts.git bundle verify ../REA-Prompts.bundle
           git clone "$SOURCE" source
           git -C source submodule update --init --recursive
           git -C source lfs fetch --all || echo "WARNING: LFS fetch incomplete" > LFS-WARNING.txt

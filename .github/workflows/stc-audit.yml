@@ -1,0 +1,68 @@
+name: STC audit existing REA snapshot
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Download and independently validate published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p audit/release audit/unpacked
+          cd audit/release
+          gh release download stc-rea-20261023-39942840112 --repo Yverr0y/REA-Prompts --pattern 'REA-Prompts.bundle' --pattern 'REA-Prompts-source-and-assets.zip' --pattern 'SHA256SUMS'
+          sha256sum -c SHA256SUMS | tee ../checksums.txt
+          git clone -q REA-Prompts.bundle ../restored
+          git -C ../restored fsck --full --no-reflogs 2>&1 | tee ../git-fsck.txt
+          git bundle verify REA-Prompts.bundle 2>&1 | tee ../bundle-verify.txt
+          unzip -t REA-Prompts-source-and-assets.zip | tail -n 2 | tee ../zip-test.txt
+          cd ..
+          python3 - <<'PY'
+          import zipfile, pathlib, json, re
+          z=zipfile.ZipFile('release/REA-Prompts-source-and-assets.zip')
+          names=set(z.namelist())
+          def get(name):
+              return z.read(name).decode('utf-8', 'replace') if name in names else None
+          report=['# STC REA-Prompts preservation audit','', 'Release: stc-rea-20261023-39942840112','']
+          for name in ['provenance.txt','relationships.yaml','refs.txt','lfs-inventory.txt','submodules.txt','releases.jsonl','LFS-WARNING.txt','RELEASES-WARNING.txt']:
+              found=name in names
+              report.append(f'- {name}: {"present" if found else "ABSENT"}')
+              if 'WARNING' in name and found: report.append('  - '+get(name).strip().replace('\n','; '))
+          lfs=get('lfs-inventory.txt')
+          report.append(f'- LFS inventory entries: {len(lfs.splitlines()) if lfs is not None else "unknown"}')
+          report.append(f'- Bundled LFS object paths: {sum(n.startswith("source/.git/lfs/objects/") for n in names)}')
+          subs=get('submodules.txt')
+          report.append(f'- Submodule inventory entries: {len(subs.splitlines()) if subs is not None else "unknown"}')
+          releases=get('releases.jsonl')
+          if releases is not None:
+              decoder=json.JSONDecoder()
+              items=[]
+              s=releases.strip()
+              while s:
+                  try:
+                      obj, end=decoder.raw_decode(s)
+                      items.extend(obj if isinstance(obj,list) else [obj])
+                      s=s[end:].lstrip()
+                  except ValueError:
+                      report.append('- Release metadata: unparsable'); break
+              report.append(f'- Upstream releases in metadata: {len(items)}')
+              expected=sum(len(x.get('assets',[])) for x in items if isinstance(x,dict))
+              actual=sum(n.startswith('release-assets/') and not n.endswith('/') for n in names)
+              report.append(f'- Upstream release assets expected: {expected}; stored: {actual}')
+              if expected != actual: report.append('- WARNING: release asset count mismatch')
+          report.append(f'- Source files (excluding .git): {sum(n.startswith("source/") and "/.git/" not in n and not n.endswith("/") for n in names)}')
+          pathlib.Path('AUDIT.md').write_text('\n'.join(report)+'\n')
+          print('\n'.join(report))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stc-rea-independent-audit
+          path: audit/
+          retention-days: 90

@@ -20,7 +20,7 @@ jobs:
           sha256sum -c SHA256SUMS | tee ../checksums.txt
           git clone -q REA-Prompts.bundle ../restored
           git -C ../restored fsck --full --no-reflogs 2>&1 | tee ../git-fsck.txt
-          git bundle verify REA-Prompts.bundle 2>&1 | tee ../bundle-verify.txt
+          git -C ../restored bundle verify "$PWD/REA-Prompts.bundle" 2>&1 | tee ../bundle-verify.txt
           unzip -t REA-Prompts-source-and-assets.zip | tail -n 2 | tee ../zip-test.txt
           cd ..
           python3 - <<'PY'
